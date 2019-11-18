@@ -1,0 +1,161 @@
+---
+title: "Hackathon"
+author: "David"
+date: '2019-11-16'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+final <- read.csv("final_data.csv", header = TRUE, sep = ",")
+#Retention <- read.csv(uu,row.names=1)
+head(final,n=20)
+
+```
+```{r}
+#convert data type
+final$st_date <- as.Date(final$st_date,format = "%Y-%m-%d")
+final$ph_k_date <- as.Date(final$ph_k_date,format = "%Y-%m-%d")
+#Retention$lastorder <- as.Date(Retention$lastorder,format = "%d/%m/%Y")
+final$churn <- as.factor(final$churn)
+```
+
+```{r}
+#perform randomForest with trees split m=sqrt(p), tree size 500
+#importance predictor
+library(randomForest)
+Model5.RanFor <- randomForest(formula = churn ~ 
+                              st_date
+                              +cust_age
+                              +cr_score
+                              +ph_k_date
+                              +mon_data
+                              +data_plan_m8
+                              +disc_m8
+                              +mon_sms
+                              +mon_voice
+                              +serv_tick_m1to6
+                              +serv_tick_m7to8
+                              +data_roam
+                              +long_d_min
+                              +long_d_spend
+                              +total_pay
+                              +mon_data_city
+                              +mon_sms_city
+                              +mon_voice_city
+                              +serv_tick_m1to6_city
+                              +serv_tick_m7to8_city
+                              +data_roam_city
+                              +long_d_min_city
+                              +long_d_spend_city
+                              +tot_pay_city
+                              +usage_ratio
+                              ,
+                              data = filter(final, Sample == "Estimation"),
+                              importance = TRUE,
+                              ntree = 500, mtry = 5)
+Model5.RanFor
+importance(Model5.RanFor,type = 2)
+#png("importance.png")
+varImpPlot(Model5.RanFor,type = 2, main = "Importance Plot")
+#dev.off() 
+```
+
+```{r}
+#index of sample type
+Holdout <- which(final$Sample == "Holdout") # index of holdout rows
+Validation <- which(final$Sample == "Validation")
+Estimation <- which(final$Sample == "Estimation")
+```
+
+```{r}
+rf1 <- predict(Model5.RanFor,newdata=final[Validation,],type="class")
+trueYes <- final[Validation, "churn"]
+table(rf1, trueYes)
+```
+**113/1272=0.0888= 8.88% error rate**
+
+```{r}
+#predict holdout data
+predicted_holdout <- predict(Model5.RanFor, newdata = final[Holdout,], type = "class")
+#select holdout data
+Holdout_dat <- final%>%filter(Sample=="Holdout")
+#fill in predicted lost outcome
+#Potential_Loss = avgorder if default
+Holdout_dat <- Holdout_dat%>%mutate(churn=predicted_holdout, Potential_Loss = total_pay)
+```
+
+```{r}
+Submission.Model5.RanFor <- final[Holdout,c("acc_num","Score")]
+```
+
+```{r}
+source("/Users/davidling/Desktop/Hackathon/BCA.R")
+final$Score <- rawProbScore(model = "Model5.RanFor",
+                                           data = final,
+                                          targLevel = "1")
+#names(Submission.Model5.RanFor) <- c("customerID", "score")
+final[order(final$Score, decreasing = TRUE),]
+Submission.Model5.RanFor <- final[Holdout,c("ph_num","acc_num","Score")]
+write.csv(Submission.Model5.RanFor,"final_holdout_score.csv")
+```
+
+```{r}
+Holdout_churn<-Holdout_dat%>%filter(churn==1)
+roam_city<-data.frame(Holdout_churn$bill_city,Holdout_churn$data_roam_city)
+hist(roam_city)
+```
+```{r}
+#Load data
+City <- read.csv("City_data.csv", header = TRUE, sep = ",")
+City<-City%>%mutate(Potential_Lost=City$churn.value.lost*City$data.roam)
+Ranked_city=City[order(City$Potential_Lost, decreasing = TRUE),]
+#write.csv(Ranked_city,"Ranked_city.csv")
+```
+
+```{r}
+Potential_lost<-final%>%mutate(Potential_Loss=total_pay)
+Potential_lost<-Potential_lost[Estimation,]
+Potential_lost<-Potential_lost%>%filter(churn==1)
+write.csv(Potential_lost,"Potential_lost.csv")
+```
+
+```{r}
+#run logistic regression to find significant predictors
+Model2.LogReg <- glm(formula = churn ~ 
+                              
+                              st_date
+                              +cust_age
+                              +cr_score
+                              +ph_k_date
+                              +mon_data
+                              +data_plan_m8
+                              +disc_m8
+                              +mon_sms
+                              +mon_voice
+                              +serv_tick_m1to6
+                              +serv_tick_m7to8
+                              +data_roam
+                              +long_d_min
+                              +long_d_spend
+                              +total_pay
+                              +mon_data_city
+                              +mon_sms_city
+                              +mon_voice_city
+                              +serv_tick_m1to6_city
+                              +serv_tick_m7to8_city
+                              +data_roam_city
+                              +long_d_min_city
+                              +long_d_spend_city
+                              +tot_pay_city
+                              +usage_ratio
+                              ,
+                              data = filter(final, Sample == "Estimation"),
+                        family = binomial(logit))
+summary(Model2.LogReg)
+
+```
+
